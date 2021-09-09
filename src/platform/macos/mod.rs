@@ -1,7 +1,9 @@
 mod hid;
 
-use super::super::{ControllerInfo, ControllerState, ControllerStatus, DEFAULT_CONTROLLER_INFO,
-                   DEFAULT_CONTROLLER_STATE, MAX_ANALOG, MAX_DEVICES, MAX_DIGITAL};
+use super::super::{
+    ControllerInfo, ControllerState, ControllerStatus, DEFAULT_CONTROLLER_INFO,
+    DEFAULT_CONTROLLER_STATE, MAX_ANALOG, MAX_DEVICES, MAX_DIGITAL,
+};
 
 pub struct ControllerContext {
     info: Vec<ControllerInfo>,
@@ -99,11 +101,11 @@ impl ControllerContext {
         }
     }
     /// Get current information of Controller
-    pub fn info(&self, index: usize) -> &ControllerInfo {
+    pub fn info(&self, index: usize) -> ControllerInfo {
         if index < MAX_DEVICES {
-            &self.info[index]
+            self.info[index].clone()
         } else {
-            &*DEFAULT_CONTROLLER_INFO
+            ControllerInfo::new()
         }
     }
     /// Get current state of Controller
