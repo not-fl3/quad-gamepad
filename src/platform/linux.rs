@@ -147,13 +147,10 @@ unsafe fn open_joystick_device(
             name_bytes[8], name_bytes[9], name_bytes[10])
     };
 
-    if !mappings.contains_key(&guid) {
+    let mapping = mappings.get(&guid).cloned().unwrap_or_else(|| {
         println!("No mapping for {}, falling back to default!", guid);
-    }
-    let mapping = mappings
-        .get(&guid)
-        .cloned()
-        .unwrap_or_else(|| crate::mapping::Mapping::new(&guid));
+        crate::mapping::Mapping::new(&guid)
+    });
 
     let mut digital_count = 0;
     let mut buttons = vec![];
@@ -237,19 +234,21 @@ pub struct ControllerContext {
 
 impl ControllerContext {
     pub fn new() -> Option<Self> {
-        let mappings = crate::mapping::read_mappings_file();
+        let mappings = crate::mapping::read_mappings_file(crate::mapping::Platform::Linux);
         Some(ControllerContext {
             gamepads: unsafe { platform_init_joysticks(&mappings) },
         })
     }
 
     /// Update controller state by index
-    pub fn update(&mut self, index: usize) {
-        if let Some(ref mut gamepad) = self.gamepads.get_mut(index) {
-            gamepad.state.digital_state_prev = gamepad.state.digital_state;
+    pub fn update(&mut self) {
+        for index in 0..crate::MAX_DEVICES {
+            if let Some(ref mut gamepad) = self.gamepads.get_mut(index) {
+                gamepad.state.digital_state_prev = gamepad.state.digital_state;
 
-            unsafe {
-                gamepad.poll();
+                unsafe {
+                    gamepad.poll();
+                }
             }
         }
     }

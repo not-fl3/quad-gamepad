@@ -59,7 +59,7 @@ impl Mapping {
 pub type MappingsMap = HashMap<String, Mapping>;
 
 // this should be a (proc?) macro
-pub fn read_mappings_file() -> MappingsMap {
+pub fn read_mappings_file(target_platform: Platform) -> MappingsMap {
     let mut mappings_map = HashMap::new();
 
     for line in MAPPINGS.lines() {
@@ -118,8 +118,7 @@ pub fn read_mappings_file() -> MappingsMap {
             }
         }
 
-        // mappings are used only for evdev anyway
-        if mapping.platform == Platform::Linux {
+        if target_platform == mapping.platform {
             mappings_map.insert(guid.to_owned(), mapping);
         }
     }

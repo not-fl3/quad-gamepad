@@ -5,68 +5,17 @@ use core_foundation::array::{CFArray, CFArrayRef};
 use core_foundation::base::{CFGetTypeID, CFRetain, TCFType};
 use core_foundation::dictionary::CFDictionary;
 use core_foundation::number::{kCFNumberSInt32Type, CFNumber, CFNumberGetValue};
-use core_foundation::runloop::{kCFRunLoopRunHandledSource, CFRunLoopGetCurrent, CFRunLoopRunInMode};
+use core_foundation::runloop::{
+    kCFRunLoopRunHandledSource, CFRunLoopGetCurrent, CFRunLoopRunInMode,
+};
 use core_foundation::string::CFString;
 
-use io_kit;
-use io_kit::{IOHIDDeviceRef, IOHIDElementCookie, IOHIDElementRef, IOReturn};
 use libc::c_void;
 use std::cell::RefCell;
 use std::ptr;
 use std::rc::{Rc, Weak};
 
-// define some constants which IOKit_sys are misings
-#[allow(non_snake_case, non_upper_case_globals)]
-mod io_kit_const {
-    use super::*;
-    pub const kIOHIDOptionsTypeNone: io_kit::IOOptionBits = 0x0;
-    pub const kHIDPage_GenericDesktop: u32 = 0x1;
-    pub const kHIDPage_Button: u32 = 0x09;
-    pub const kHIDPage_Consumer: u32 = 0x0C;
-
-    pub const kHIDUsage_GD_Joystick: u32 = 0x04;
-    pub const kHIDUsage_GD_GamePad: u32 = 0x05;
-    pub const kHIDUsage_GD_MultiAxisController: u32 = 0x08;
-
-    pub const kHIDUsage_GD_X: u32 = 0x30;
-    pub const kHIDUsage_GD_Y: u32 = 0x31;
-    pub const kHIDUsage_GD_Z: u32 = 0x32;
-    pub const kHIDUsage_GD_Rx: u32 = 0x33;
-    pub const kHIDUsage_GD_Ry: u32 = 0x34;
-    pub const kHIDUsage_GD_Rz: u32 = 0x35;
-    pub const kHIDUsage_GD_Slider: u32 = 0x36;
-    pub const kHIDUsage_GD_Dial: u32 = 0x37;
-    pub const kHIDUsage_GD_Wheel: u32 = 0x38;
-
-    pub const kHIDUsage_GD_Hatswitch: u32 = 0x39;
-
-    pub const kHIDUsage_GD_Start: u32 = 0x3D;
-    pub const kHIDUsage_GD_Select: u32 = 0x3E;
-    pub const kHIDUsage_GD_SystemMainMenu: u32 = 0x85;
-
-    pub const kHIDUsage_GD_DPadUp: u32 = 0x90;
-    pub const kHIDUsage_GD_DPadDown: u32 = 0x91;
-    pub const kHIDUsage_GD_DPadRight: u32 = 0x92;
-    pub const kHIDUsage_GD_DPadLeft: u32 = 0x93;
-
-    pub fn kIOHIDManufacturerKey() -> &'static str {
-        "Manufacturer"
-    }
-
-    pub fn kIOHIDDeviceUsageKey() -> &'static str {
-        "DeviceUsage"
-    }
-    pub fn kIOHIDDeviceUsagePageKey() -> &'static str {
-        "DeviceUsagePage"
-    }
-    pub fn kIOHIDPrimaryUsagePageKey() -> &'static str {
-        "PrimaryUsagePage"
-    }
-    pub fn kIOHIDPrimaryUsageKey() -> &'static str {
-        "PrimaryUsage"
-    }
-}
-use self::io_kit_const::*;
+use super::io_kit::{self, *};
 
 fn gamepad_rs_runloop_mode() -> CFString {
     "GamepadRS".into()
@@ -84,7 +33,7 @@ pub struct HIDStateContext {
 }
 
 pub struct HIDState {
-    hidman: io_kit::IOHIDManagerRef,
+    hidman: IOHIDManagerRef,
     pub devices: RefCell<Vec<Weak<RefCell<Device>>>>,
 }
 
@@ -110,20 +59,20 @@ impl Drop for HID {
                     let current_loop = CFRunLoopGetCurrent();
                     let mode = gamepad_rs_runloop_mode();
                     if current_loop != ptr::null_mut() {
-                        io_kit::IOHIDManagerUnscheduleFromRunLoop(
+                        IOHIDManagerUnscheduleFromRunLoop(
                             state.hidman,
                             current_loop as _,
                             mode.as_CFType().as_CFTypeRef() as _,
                         );
                     }
-                    io_kit::IOHIDManagerClose(state.hidman, kIOHIDOptionsTypeNone);
+                    IOHIDManagerClose(state.hidman, kIOHIDOptionsTypeNone);
                 }
             }
         }
     }
 }
 
-fn create_hid_device_mach_dictionary(page: u32, usage: u32) -> CFDictionary {
+fn create_hid_device_mach_dictionary(page: u32, usage: u32) -> CFDictionary<CFString, CFNumber> {
     let page = CFNumber::from(page as i32);
     let usage = CFNumber::from(usage as i32);
 
@@ -164,16 +113,13 @@ impl HIDElement {
         if device_ref == ptr::null_mut() || self.ref_elem == ptr::null_mut() {
             return None;
         }
-        let mut value_ref: io_kit::IOHIDValueRef = ptr::null_mut();
+        let mut value_ref: IOHIDValueRef = ptr::null_mut();
 
         unsafe {
-            if io_kit::IOHIDDeviceGetValue(
-                device_ref,
-                self.ref_elem,
-                mem::transmute(&mut value_ref),
-            ) == io_kit::kIOReturnSuccess
+            if IOHIDDeviceGetValue(device_ref, self.ref_elem, mem::transmute(&mut value_ref))
+                == kIOReturnSuccess
             {
-                let value = io_kit::IOHIDValueGetIntegerValue(value_ref) as i32;
+                let value = IOHIDValueGetIntegerValue(value_ref) as i32;
 
                 // record min and max for auto calibration
                 self.min_report = self.min_report.min(value);
@@ -204,7 +150,8 @@ pub struct Device {
     page: i32,
     device: IOHIDDeviceRef,
 
-    pub product: String,
+    pub name: String,
+    pub guid: String,
     pub axes: Vec<HIDElement>,
     pub hats: Vec<HIDElement>,
     pub buttons: Vec<HIDElement>,
@@ -222,7 +169,7 @@ unsafe fn get_property_i32(dev: IOHIDDeviceRef, s: &'static str) -> Option<i32> 
     use std::mem;
 
     let key = CFString::from(s);
-    let ref_cf = io_kit::IOHIDDeviceGetProperty(dev, key.as_CFTypeRef() as _);
+    let ref_cf = IOHIDDeviceGetProperty(dev, key.as_CFTypeRef() as _);
     if ref_cf == ptr::null() {
         return None;
     }
@@ -239,7 +186,7 @@ unsafe fn get_property_i32(dev: IOHIDDeviceRef, s: &'static str) -> Option<i32> 
 
 unsafe fn get_property_str(dev: IOHIDDeviceRef, s: &'static str) -> Option<String> {
     let key = CFString::from(s);
-    let ref_cf = io_kit::IOHIDDeviceGetProperty(dev, key.as_CFTypeRef() as _);
+    let ref_cf = IOHIDDeviceGetProperty(dev, key.as_CFTypeRef() as _);
     if ref_cf == ptr::null() {
         return None;
     }
@@ -253,7 +200,7 @@ impl Device {
         if self.device != ptr::null_mut() {
             use std::mem;
             unsafe {
-                io_kit::IOHIDDeviceRegisterRemovalCallback(
+                IOHIDDeviceRegisterRemovalCallback(
                     self.device,
                     mem::transmute::<*const (), _>(ptr::null()),
                     ptr::null_mut(),
@@ -283,106 +230,67 @@ impl Device {
             || self.hats.iter().any(|elm| elm.cookie == cookie)
     }
 
-    fn add_element(&mut self, ref_elem: IOHIDElementRef) {
+    unsafe fn add_element(&mut self, ref_elem: IOHIDElementRef) {
         if ref_elem == ptr::null_mut() {
             return;
         }
 
-        let elem_type_id = unsafe { CFGetTypeID(ref_elem as _) };
-        if elem_type_id != unsafe { io_kit::IOHIDElementGetTypeID() } {
+        let elem_type_id = CFGetTypeID(ref_elem as _);
+        if elem_type_id != IOHIDElementGetTypeID() {
             return;
         }
 
-        unsafe {
-            let cookie = io_kit::IOHIDElementGetCookie(ref_elem);
-            let page = io_kit::IOHIDElementGetUsagePage(ref_elem);
-            let usage = io_kit::IOHIDElementGetUsage(ref_elem);
+        let cookie = IOHIDElementGetCookie(ref_elem);
 
-            match io_kit::IOHIDElementGetType(ref_elem) {
-                io_kit::kIOHIDElementTypeCollection => {
-                    let children = io_kit::IOHIDElementGetChildren(ref_elem);
-                    self.add_elements(children as _);
+        if self.contain_element(cookie) {
+            return;
+        }
+
+        let page = IOHIDElementGetUsagePage(ref_elem);
+        let usage = IOHIDElementGetUsage(ref_elem);
+
+        let mut target = None;
+
+        if page == kHIDPage_GenericDesktop {
+            match usage {
+                io_kit::kHIDUsage_GD_X
+                | io_kit::kHIDUsage_GD_Y
+                | io_kit::kHIDUsage_GD_Z
+                | io_kit::kHIDUsage_GD_Rx
+                | io_kit::kHIDUsage_GD_Ry
+                | io_kit::kHIDUsage_GD_Rz
+                | io_kit::kHIDUsage_GD_Slider
+                | io_kit::kHIDUsage_GD_Dial
+                | io_kit::kHIDUsage_GD_Wheel => {
+                    target = Some(&mut self.axes);
                 }
-
-                io_kit::kIOHIDElementTypeInput_Misc
-                | io_kit::kIOHIDElementTypeInput_Button
-                | io_kit::kIOHIDElementTypeInput_Axis => match page {
-                    io_kit_const::kHIDPage_GenericDesktop => match usage {
-                        io_kit_const::kHIDUsage_GD_X
-                        | io_kit_const::kHIDUsage_GD_Y
-                        | io_kit_const::kHIDUsage_GD_Z
-                        | io_kit_const::kHIDUsage_GD_Rx
-                        | io_kit_const::kHIDUsage_GD_Ry
-                        | io_kit_const::kHIDUsage_GD_Rz
-                        | io_kit_const::kHIDUsage_GD_Slider
-                        | io_kit_const::kHIDUsage_GD_Dial
-                        | io_kit_const::kHIDUsage_GD_Wheel => {
-                            if !self.contain_element(cookie) {
-                                self.axes.push(HIDElement {
-                                    usage,
-                                    page,
-                                    ref_elem,
-                                    cookie,
-                                    min_report: io_kit::IOHIDElementGetLogicalMin(ref_elem) as i32,
-                                    max_report: io_kit::IOHIDElementGetLogicalMax(ref_elem) as i32,
-                                });
-                            }
-                        }
-                        io_kit_const::kHIDUsage_GD_Hatswitch => {
-                            if !self.contain_element(cookie) {
-                                self.hats.push(HIDElement {
-                                    usage,
-                                    page,
-                                    ref_elem,
-                                    cookie,
-                                    min_report: io_kit::IOHIDElementGetLogicalMin(ref_elem) as i32,
-                                    max_report: io_kit::IOHIDElementGetLogicalMax(ref_elem) as i32,
-
-                                });
-                            }
-                        }
-
-                        io_kit_const::kHIDUsage_GD_DPadUp
-                        | io_kit_const::kHIDUsage_GD_DPadDown
-                        | io_kit_const::kHIDUsage_GD_DPadRight
-                        | io_kit_const::kHIDUsage_GD_DPadLeft
-                        | io_kit_const::kHIDUsage_GD_Start
-                        | io_kit_const::kHIDUsage_GD_Select
-                        | io_kit_const::kHIDUsage_GD_SystemMainMenu => {
-                            if !self.contain_element(cookie) {
-                                self.buttons.push(HIDElement {
-                                    usage,
-                                    page,
-                                    ref_elem,
-                                    cookie,
-                                    min_report: io_kit::IOHIDElementGetLogicalMin(ref_elem) as i32,
-                                    max_report: io_kit::IOHIDElementGetLogicalMax(ref_elem) as i32,
-
-                                });
-                            }
-                        }
-                        _ => (),
-                    },
-                    io_kit_const::kHIDPage_Button | 
-                    // e.g. 'pause' button on Steelseries MFi gamepads.
-                    io_kit_const::kHIDPage_Consumer => {                        
-                        if !self.contain_element(cookie) {
-                            self.buttons.push(HIDElement {
-                                usage,
-                                page,
-                                ref_elem,
-                                cookie,
-                                min_report: io_kit::IOHIDElementGetLogicalMin(ref_elem) as i32,
-                                max_report: io_kit::IOHIDElementGetLogicalMax(ref_elem) as i32,
-                            });
-                        }
-                    }
-
-                    _ => (),
-                },
-
+                io_kit::kHIDUsage_GD_Hatswitch => {
+                    target = Some(&mut self.hats);
+                }
+                io_kit::kHIDUsage_GD_DPadUp
+                | io_kit::kHIDUsage_GD_DPadDown
+                | io_kit::kHIDUsage_GD_DPadRight
+                | io_kit::kHIDUsage_GD_DPadLeft
+                | io_kit::kHIDUsage_GD_Start
+                | io_kit::kHIDUsage_GD_Select
+                | io_kit::kHIDUsage_GD_SystemMainMenu => {
+                    target = Some(&mut self.buttons);
+                }
                 _ => {}
             }
+        } else if page == io_kit::kHIDPage_Button || page == io_kit::kHIDPage_Consumer {
+            target = Some(&mut self.buttons);
+        }
+
+        if let Some(target) = target {
+            target.push(HIDElement {
+                usage,
+                page,
+                ref_elem,
+                cookie,
+                min_report: IOHIDElementGetLogicalMin(ref_elem) as i32,
+                max_report: IOHIDElementGetLogicalMax(ref_elem) as i32,
+            });
         }
     }
 
@@ -422,19 +330,38 @@ impl Device {
             };
 
             //  Filter device list to non-keyboard/mouse stuff
-            if usage != kHIDUsage_GD_Joystick as i32 && usage != kHIDUsage_GD_GamePad as i32
+            if usage != kHIDUsage_GD_Joystick as i32
+                && usage != kHIDUsage_GD_GamePad as i32
                 && usage != kHIDUsage_GD_MultiAxisController as i32
             {
                 return None;
             }
 
-            let product = get_property_str(dev, kIOHIDManufacturerKey())
-                .unwrap_or("Unidentified joystick".to_owned());
+            let name = get_property_str(dev, kIOHIDProductKey()).unwrap_or("unknown".to_owned());
+
+            let vendor = get_property_i32(dev, kIOHIDVendorIDKey()).unwrap_or(0);
+            let product_id = get_property_i32(dev, kIOHIDProductIDKey()).unwrap_or(0);
+            let version = get_property_i32(dev, kIOHIDVersionNumberKey()).unwrap_or(0);
+
+            #[rustfmt::skip]
+            let guid = if vendor != 0 && product_id != 0 {
+                format!("03000000{:02x}{:02x}0000{:02x}{:02x}0000{:02x}{:02x}0000",
+                        vendor as u8, (vendor >> 8) as u8,
+                        product_id as u8,  (product_id >> 8) as u8,
+                        version as u8, (version >> 8) as u8)
+            } else {
+                let name = name.as_bytes();
+                format!("05000000{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}00",
+                        name[0], name[1], name[2], name[3],
+                        name[4], name[5], name[6], name[7],
+                        name[8], name[9], name[10])
+            };
 
             let mut device = Device {
                 usage,
                 page,
-                product,
+                guid,
+                name,
                 device: dev,
                 hats: Vec::new(),
                 axes: Vec::new(),
@@ -442,8 +369,7 @@ impl Device {
                 state: Default::default(),
             };
 
-            let array_cf =
-                io_kit::IOHIDDeviceCopyMatchingElements(dev, ptr::null(), kIOHIDOptionsTypeNone);
+            let array_cf = IOHIDDeviceCopyMatchingElements(dev, ptr::null(), kIOHIDOptionsTypeNone);
 
             if array_cf != ptr::null() {
                 device.add_elements(array_cf as _);
@@ -464,7 +390,7 @@ impl Device {
             });
 
             // Get notified when this device is disconnected.
-            io_kit::IOHIDDeviceRegisterRemovalCallback(
+            IOHIDDeviceRegisterRemovalCallback(
                 device.borrow().device,
                 joystick_device_was_removed_cb,
                 Box::into_raw(device_ctx) as _,
@@ -507,7 +433,7 @@ extern "C" fn joystick_device_was_added_cb(
     _sender: *mut c_void,
     device: IOHIDDeviceRef,
 ) {
-    if res != io_kit::kIOReturnSuccess {
+    if res != kIOReturnSuccess {
         return;
     }
 
@@ -610,12 +536,10 @@ impl HID {
 
     pub fn new() -> HIDResult<HID> {
         let hidman = unsafe {
-            let hidman = io_kit::IOHIDManagerCreate(
-                cf::base::kCFAllocatorDefault as _,
-                io_kit::kIOHIDManagerOptionNone,
-            );
+            let hidman =
+                IOHIDManagerCreate(cf::base::kCFAllocatorDefault as _, kIOHIDManagerOptionNone);
 
-            if io_kit::kIOReturnSuccess != io_kit::IOHIDManagerOpen(hidman, kIOHIDOptionsTypeNone) {
+            if kIOReturnSuccess != IOHIDManagerOpen(hidman, kIOHIDOptionsTypeNone) {
                 return Err(Error::Unknown("Fail to open HID Manager".to_owned()));
             }
 
@@ -657,19 +581,15 @@ impl HID {
                 state: state.clone(),
             });
 
-            io_kit::IOHIDManagerSetDeviceMatchingMultiple(state.hidman, array.as_CFTypeRef() as _);
-            io_kit::IOHIDManagerRegisterDeviceMatchingCallback(
+            IOHIDManagerSetDeviceMatchingMultiple(state.hidman, array.as_CFTypeRef() as _);
+            IOHIDManagerRegisterDeviceMatchingCallback(
                 state.hidman,
                 joystick_device_was_added_cb,
                 Box::into_raw(state_ctx) as _,
             );
 
             let mode = gamepad_rs_runloop_mode();
-            io_kit::IOHIDManagerScheduleWithRunLoop(
-                state.hidman,
-                runloop as _,
-                mode.as_CFTypeRef() as _,
-            );
+            IOHIDManagerScheduleWithRunLoop(state.hidman, runloop as _, mode.as_CFTypeRef() as _);
 
             // joystick_device_was_added_cb will be called if there are any devices
             while CFRunLoopRunInMode(mode.as_CFTypeRef() as _, 0.0, 1) == kCFRunLoopRunHandledSource

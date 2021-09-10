@@ -5,8 +5,6 @@ extern crate libc;
 extern crate winapi;
 
 #[cfg(target_os = "macos")]
-extern crate IOKit_sys as io_kit;
-#[cfg(target_os = "macos")]
 extern crate core_foundation;
 #[cfg(target_os = "macos")]
 extern crate libc;

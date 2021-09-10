@@ -151,35 +151,33 @@ impl ControllerContext {
         })
     }
 
-    pub fn update(&mut self, index: usize) {
-        if index >= 4 {
-            return;
-        }
+    pub fn update(&mut self) {
+        for index in 0..4 {
+            let mut state = unsafe { mem::zeroed::<XState>() };
+            let val = unsafe { xinput::XInputGetState(index as u32, &mut state) };
 
-        let mut state = unsafe { mem::zeroed::<XState>() };
-        let val = unsafe { xinput::XInputGetState(index as u32, &mut state) };
-
-        if val == ERROR_SUCCESS {
-            if self.gamepads[index].is_none() {
-                let mut capabilities = unsafe { mem::zeroed::<XCapabilities>() };
-                if unsafe {
-                    xinput::XInputGetCapabilities(
-                        index as u32,
-                        XINPUT_FLAG_GAMEPAD,
-                        &mut capabilities,
-                    )
-                } == ERROR_SUCCESS
-                {
-                    let gamepad = GamePad::new(&capabilities);
-                    self.gamepads[index] = Some(gamepad);
+            if val == ERROR_SUCCESS {
+                if self.gamepads[index].is_none() {
+                    let mut capabilities = unsafe { mem::zeroed::<XCapabilities>() };
+                    if unsafe {
+                        xinput::XInputGetCapabilities(
+                            index as u32,
+                            XINPUT_FLAG_GAMEPAD,
+                            &mut capabilities,
+                        )
+                    } == ERROR_SUCCESS
+                    {
+                        let gamepad = GamePad::new(&capabilities);
+                        self.gamepads[index] = Some(gamepad);
+                    }
                 }
-            }
 
-            if let Some(ref mut gamepad) = &mut self.gamepads[index] {
-                gamepad.update(&state);
+                if let Some(ref mut gamepad) = &mut self.gamepads[index] {
+                    gamepad.update(&state);
+                }
+            } else {
+                self.gamepads[index] = None;
             }
-        } else {
-            self.gamepads[index] = None;
         }
     }
 

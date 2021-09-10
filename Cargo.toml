@@ -14,6 +14,5 @@ libc = "0.2"
 winapi = { version = "0.3", features = ["winerror", "xinput"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-core-foundation = "0.5.1"
-IOKit-sys = {git="https://github.com/edwin0cheng/iokit-sys.git"}
+core-foundation = "0.6"
 libc = "0.2"
