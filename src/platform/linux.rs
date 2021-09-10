@@ -79,10 +79,8 @@ unsafe fn open_joystick_device(
 ) -> Option<GamePad> {
     use std::os::unix::ffi::OsStrExt;
 
-    let fd = libc::open(
-        path.as_os_str().as_bytes().as_ptr() as _,
-        libc::O_RDONLY | libc::O_NONBLOCK,
-    );
+    let filename = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    let fd = libc::open(filename.as_ptr(), libc::O_RDONLY | libc::O_NONBLOCK);
     if fd == -1 {
         return None;
     }
