@@ -1,9 +1,11 @@
 [package]
 name = "quad-gamepad"
-version = "0.2.0"
+version = "0.2.0-alpha"
 authors = ["jice <jice.nospam@gmail.com>, fedor <not.fl3@gmail.com>"]
 keywords = ["gamepad", "joystick", "input"]
 edition = "2018"
+license = "MIT/Apache-2.0"
+description = "Light-weight and opinionated gamepad handling libarary."
 
 [dependencies]
 
