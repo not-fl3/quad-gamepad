@@ -213,13 +213,15 @@ unsafe fn platform_init_joysticks(mappings: &crate::mapping::MappingsMap) -> Vec
 
     let mut res = vec![];
 
-    for entry in std::fs::read_dir(dirname).unwrap() {
-        let path = entry.unwrap().path();
-        let file_name = path.file_name().unwrap().to_str().unwrap();
+    if let Ok(dir) = std::fs::read_dir(dirname) {
+        for entry in dir {
+            let path = entry.unwrap().path();
+            let file_name = path.file_name().unwrap().to_str().unwrap();
 
-        if file_name.starts_with("event") {
-            if let Some(gamepad) = open_joystick_device(mappings, path) {
-                res.push(gamepad);
+            if file_name.starts_with("event") {
+                if let Some(gamepad) = open_joystick_device(mappings, path) {
+                    res.push(gamepad);
+                }
             }
         }
     }
